@@ -1,0 +1,44 @@
+# Environment and secrets
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Audio files (large binaries)
+Audio/
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+
+# Output
+Transcriptions/
+
+# Model cache
+*.pt
+*.bin
+.cache/
+
+# Logs
+*.log
+
+# OS
+Thumbs.db
+.DS_Store
