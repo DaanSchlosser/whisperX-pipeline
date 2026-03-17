@@ -1,93 +1,62 @@
 # WhisperX Transcription Pipeline
 
-Local audio transcription with speaker diarization using [WhisperX](https://github.com/m-bain/whisperX) and [pyannote](https://github.com/pyannote/pyannote-audio).
+Transcribe local audio with speaker diarization using [WhisperX](https://github.com/m-bain/whisperX) and [pyannote](https://github.com/pyannote/pyannote-audio).
 
-## Prerequisites
+## Requirements
 
 - Python 3.10+
-- [FFmpeg](https://ffmpeg.org/download.html) on your PATH
-- A [HuggingFace](https://huggingface.co) account with access accepted for:
+- [FFmpeg](https://ffmpeg.org/download.html) on PATH
+- Hugging Face account with access to:
   - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
   - [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1)
   - [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
 
-## Setup
+## Setup (Windows, recommended)
 
-```bash
-pip install -r requirements.txt
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+# CUDA-enabled PyTorch compatible with whisperx==3.8.x
+.\.venv\Scripts\python.exe -m pip install --upgrade --force-reinstall torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu126
+
+# FFmpeg
+winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements
 ```
 
-**GPU (recommended):** If pip installed a CPU-only PyTorch, reinstall with CUDA:
+Create `.env` from `.env.example` and set `HF_TOKEN`.
 
-```bash
-# For NVIDIA GPUs (RTX 30xx/40xx/50xx — CUDA 12.6)
-pip install --force-reinstall torch torchaudio --index-url https://download.pytorch.org/whl/cu126
-```
+## Verify CUDA
 
-> **Older GPUs** (GTX 10xx series): use `--compute-type int8` instead of the default `float16` since Pascal GPUs don't support fp16 in ctranslate2.
-
-Then create your `.env` file:
-
-```bash
-cp .env.example .env
-# Edit .env and paste your HuggingFace token
+```powershell
+.\.venv\Scripts\python.exe -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.version.cuda); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'n/a')"
 ```
 
 ## Usage
 
-```bash
-python transcribe.py <audio_file> [options]
+```powershell
+.\.venv\Scripts\python.exe transcribe.py "Audio/interview.mp3" --max-speakers 3
 ```
 
-### Default (recommended for interviews)
+If you get GPU out-of-memory (common on 8 GB VRAM):
 
-```bash
-python transcribe.py "Audio/interview.mp3" --max-speakers 3
+```powershell
+.\.venv\Scripts\python.exe transcribe.py "Audio/interview.mp3" --max-speakers 3 --batch-size 4 --compute-type int8
 ```
 
-### All options
+## Options
 
 | Flag | Default | Description |
 |---|---|---|
 | `--model` | `large-v2` | Whisper model name |
 | `--language` | auto-detect | Language code (`nl`, `en`, etc.) |
-| `--min-speakers` | — | Minimum number of speakers |
-| `--max-speakers` | — | Maximum number of speakers |
-| `--batch-size` | `16` | Transcription batch size (lower if OOM) |
+| `--min-speakers` | — | Minimum expected speakers |
+| `--max-speakers` | — | Maximum expected speakers |
+| `--batch-size` | `16` | Transcription batch size |
 | `--compute-type` | `float16` | `float16`, `float32`, or `int8` |
 | `--output-dir` | `Transcriptions` | Output directory |
 
-### Examples
-
-```bash
-# Dutch interview, 2 speakers
-python transcribe.py "Audio/interview.mp3" --language nl --max-speakers 2
-
-# English meeting, force int8 for older GPUs or CPU
-python transcribe.py "Audio/meeting.wav" --language en --max-speakers 5 --compute-type int8
-
-# CPU-only (int8 is used automatically)
-python transcribe.py "Audio/file.mp3" --batch-size 4
-```
-
 ## Output
 
-Results are saved to `Transcriptions/` as a `.txt` file with timestamps and speaker labels per line:
-
-```
-[00:00:01.234 -> 00:00:05.678]  SPEAKER_00:  Hello, how are you?
-[00:00:06.100 -> 00:00:09.200]  SPEAKER_01:  I'm doing well, thanks.
-```
-
-## License
-
-MIT — see [LICENSE](LICENSE).
-
-## GPU vs CPU
-
-| | GPU (CUDA) | CPU |
-|---|---|---|
-| Speed | ~10x–50x faster | Slow |
-| Compute type | `float16` (RTX 20xx+) or `int8` (GTX 10xx) | `int8` (auto) |
-| Batch size | 8–16 | 4 |
-| VRAM needed | ~6–8 GB for `large-v2` | — |
+Writes a `.txt` file to `Transcriptions/` with timestamps and speaker labels.
