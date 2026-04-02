@@ -60,3 +60,28 @@ If you get GPU out-of-memory (common on 8 GB VRAM):
 ## Output
 
 Writes a `.txt` file to `Transcriptions/` with timestamps and speaker labels.
+
+## Removing Timestamps
+
+The `remove_timestamps.py` script strips timestamp prefixes from transcript files, in case you don't want them:
+
+```powershell
+# Auto-generates output filename
+.\.venv\Scripts\python.exe remove_timestamps.py "Transcriptions/interview.txt"
+# Output: Transcriptions/interview_no_timestamps.txt
+
+# Specify custom output path
+.\.venv\Scripts\python.exe remove_timestamps.py "Transcriptions/interview.txt" -o "interview_clean.txt"
+```
+
+This removes prefixes like `[00:00:01.234 -> 00:00:02.345]  ` from each line, converting this:
+```
+[00:00:00.151 -> 00:00:01.631]  SPEAKER_00: Good morning.
+[00:00:01.651 -> 00:00:03.411]  SPEAKER_01: Hi there!
+```
+
+To:
+```
+SPEAKER_00: Good morning.
+SPEAKER_01: Hi there!
+```
