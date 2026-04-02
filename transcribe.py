@@ -7,6 +7,7 @@ import platform
 import subprocess
 import warnings
 from pathlib import Path
+from typing import Any
 
 # Suppress noisy informational messages from third-party libraries
 logging.getLogger("lightning.pytorch").setLevel(logging.WARNING)
@@ -15,8 +16,8 @@ warnings.filterwarnings("ignore", message=r"(?s).*TensorFloat-32.*")
 warnings.filterwarnings("ignore", message=r"(?s).*degrees of freedom.*", category=UserWarning)
 warnings.filterwarnings("ignore", message=r"(?s).*Lightning automatically upgraded.*")
 
-import whisperx
-from whisperx.diarize import DiarizationPipeline
+import whisperx  # type: ignore[import-untyped]
+from whisperx.diarize import DiarizationPipeline  # type: ignore[import-untyped]
 import torch
 from dotenv import load_dotenv
 
@@ -24,8 +25,9 @@ load_dotenv()
 
 # Ensure HF_TOKEN is available globally for huggingface_hub downloads
 # (pyannote sub-models like PLDA read this env var directly)
-if os.getenv("HF_TOKEN") and not os.getenv("HUGGING_FACE_HUB_TOKEN"):
-    os.environ["HUGGING_FACE_HUB_TOKEN"] = os.getenv("HF_TOKEN")
+if _hf_token := os.getenv("HF_TOKEN"):
+    if not os.getenv("HUGGING_FACE_HUB_TOKEN"):
+        os.environ["HUGGING_FACE_HUB_TOKEN"] = _hf_token
 
 
 def get_device():
@@ -70,9 +72,9 @@ def print_system_info(device: str, compute_type: str):
     print(f"  Device:      {device}")
     if device == "cuda":
         gpu_name = torch.cuda.get_device_name(0)
-        vram = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+        vram: float = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)  # type: ignore[union-attr]
         print(f"  GPU:         {gpu_name} ({vram:.1f} GB VRAM)")
-        print(f"  CUDA:        {torch.version.cuda}")
+        print(f"  CUDA:        {torch.version.cuda}")  # type: ignore[attr-defined]
     print(f"  Compute:     {compute_type}")
     print()
 
@@ -109,8 +111,8 @@ def step_timer(name: str):
     return Timer()
 
 
-def transcribe(audio_path: str, model_name: str = "large-v2", language: str = None,
-               min_speakers: int = None, max_speakers: int = None,
+def transcribe(audio_path: str, model_name: str = "large-v2", language: str | None = None,
+               min_speakers: int | None = None, max_speakers: int | None = None,
                batch_size: int = 16, compute_type: str = "float16"):
     """Run the full WhisperX pipeline: transcribe → align → diarize."""
 
@@ -135,9 +137,9 @@ def transcribe(audio_path: str, model_name: str = "large-v2", language: str = No
 
     # --- 1. Transcribe ---
     with step_timer("[1/4] Transcribing audio"):
-        model = whisperx.load_model(model_name, device, compute_type=compute_type,
+        model = whisperx.load_model(model_name, device, compute_type=compute_type,  # type: ignore[reportUnknownMemberType]
                                     language=language)
-        audio = whisperx.load_audio(audio_path)
+        audio = whisperx.load_audio(audio_path)  # type: ignore[reportUnknownMemberType]
         result = model.transcribe(audio, batch_size=batch_size, language=language)
     detected_lang = result.get("language", language)
     print(f"         Detected language: {detected_lang}")
@@ -148,10 +150,10 @@ def transcribe(audio_path: str, model_name: str = "large-v2", language: str = No
 
     # --- 2. Align ---
     with step_timer("[2/4] Aligning timestamps"):
-        align_model, metadata = whisperx.load_align_model(
+        align_model, metadata = whisperx.load_align_model(  # type: ignore[reportUnknownMemberType]
             language_code=detected_lang, device=device
         )
-        result = whisperx.align(
+        result = whisperx.align(  # type: ignore[reportUnknownMemberType]
             result["segments"], align_model, metadata, audio, device,
             return_char_alignments=False,
         )
@@ -172,11 +174,11 @@ def transcribe(audio_path: str, model_name: str = "large-v2", language: str = No
             diarize_kwargs["min_speakers"] = min_speakers
         if max_speakers is not None:
             diarize_kwargs["max_speakers"] = max_speakers
-        diarize_segments = diarize_model(audio, **diarize_kwargs)
+        diarize_segments = diarize_model(audio, **diarize_kwargs)  # type: ignore[reportUnknownArgumentType]
 
     # --- 4. Assign speakers ---
     with step_timer("[4/4] Assigning speakers"):
-        result = whisperx.assign_word_speakers(diarize_segments, result)
+        result = whisperx.assign_word_speakers(diarize_segments, result)  # type: ignore[reportUnknownMemberType]
 
     total_elapsed = time.perf_counter() - total_start
     print()
@@ -193,21 +195,21 @@ def format_timestamp(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
 
 
-def save_results(result: dict, audio_path: str, output_dir: str):
+def save_results(result: dict[str, Any], audio_path: str, output_dir: str):
     """Save transcription as a .txt file."""
     stem = Path(audio_path).stem
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    segments = result.get("segments", [])
+    segments: list[dict[str, Any]] = result.get("segments", [])
 
     txt_path = out / f"{stem}.txt"
     with open(txt_path, "w", encoding="utf-8") as f:
         for seg in segments:
-            speaker = seg.get("speaker", "UNKNOWN")
+            speaker: str = seg.get("speaker", "UNKNOWN")
             start = format_timestamp(seg["start"])
             end = format_timestamp(seg["end"])
-            text = seg["text"].strip()
+            text: str = seg["text"].strip()
             f.write(f"[{start} -> {end}]  {speaker}:  {text}\n")
     print(f"  TXT  → {txt_path}")
 
