@@ -1,126 +1,181 @@
+"""WhisperX transcription pipeline with alignment and speaker diarization."""
+
+from __future__ import annotations
+
+import argparse
+import logging
 import os
+import platform
+import shutil
+import subprocess
 import sys
 import time
-import logging
-import argparse
-import platform
-import subprocess
 import warnings
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+import torch
+import whisperx  # type: ignore[import-untyped]
+from dotenv import load_dotenv
+from whisperx.diarize import DiarizationPipeline  # type: ignore[import-untyped]
+
+logger = logging.getLogger(__name__)
 
 # Suppress noisy informational messages from third-party libraries
 logging.getLogger("lightning.pytorch").setLevel(logging.WARNING)
 warnings.filterwarnings("ignore", message=r"(?s).*torchcodec.*", category=UserWarning)
 warnings.filterwarnings("ignore", message=r"(?s).*TensorFloat-32.*")
-warnings.filterwarnings("ignore", message=r"(?s).*degrees of freedom.*", category=UserWarning)
+warnings.filterwarnings(
+    "ignore",
+    message=r"(?s).*degrees of freedom.*",
+    category=UserWarning,
+)
 warnings.filterwarnings("ignore", message=r"(?s).*Lightning automatically upgraded.*")
-
-import whisperx  # type: ignore[import-untyped]
-from whisperx.diarize import DiarizationPipeline  # type: ignore[import-untyped]
-import torch
-from dotenv import load_dotenv
 
 load_dotenv()
 
 # Ensure HF_TOKEN is available globally for huggingface_hub downloads
 # (pyannote sub-models like PLDA read this env var directly)
-if _hf_token := os.getenv("HF_TOKEN"):
-    if not os.getenv("HUGGING_FACE_HUB_TOKEN"):
-        os.environ["HUGGING_FACE_HUB_TOKEN"] = _hf_token
+if (_hf_token := os.getenv("HF_TOKEN")) and not os.getenv("HUGGING_FACE_HUB_TOKEN"):
+    os.environ["HUGGING_FACE_HUB_TOKEN"] = _hf_token
 
 
-def get_device():
+@dataclass(frozen=True)
+class TranscriptionOptions:
+    """Runtime options for a single transcription run."""
+
+    model_name: str = "large-v2"
+    language: str | None = None
+    min_speakers: int | None = None
+    max_speakers: int | None = None
+    batch_size: int = 16
+    compute_type: str = "float16"
+
+
+def get_device() -> str:
+    """Return the preferred Torch device."""
     if torch.cuda.is_available():
         return "cuda"
-    print("WARNING: CUDA not available, falling back to CPU (this will be slow)")
+    logger.warning("CUDA not available, falling back to CPU (this will be slow)")
     return "cpu"
 
 
 def get_audio_duration(audio_path: str) -> float | None:
     """Get audio duration in seconds using ffprobe."""
+    audio_path_obj = Path(audio_path)
+    if not audio_path_obj.exists() or not audio_path_obj.is_file():
+        return None
+
+    ffprobe_path = shutil.which("ffprobe")
+    if not ffprobe_path:
+        logger.warning("ffprobe was not found on PATH; skipping duration detection")
+        return None
+
     try:
-        result = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
-            capture_output=True, text=True, check=True,
+        result = subprocess.run(  # noqa: S603 -- shell is disabled and command path is resolved via shutil.which
+            [
+                ffprobe_path,
+                "-v",
+                "quiet",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(audio_path_obj),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return float(result.stdout.strip())
-    except Exception:
+    except subprocess.CalledProcessError:
         return None
+
+
+SECONDS_PER_MINUTE = 60
 
 
 def format_duration(seconds: float) -> str:
     """Format seconds into human-readable duration."""
-    if seconds < 60:
+    if seconds < SECONDS_PER_MINUTE:
         return f"{seconds:.1f}s"
-    m, s = divmod(int(seconds), 60)
-    h, m = divmod(m, 60)
+    m, s = divmod(int(seconds), SECONDS_PER_MINUTE)
+    h, m = divmod(m, SECONDS_PER_MINUTE)
     if h > 0:
         return f"{h}h {m}m {s}s"
     return f"{m}m {s}s"
 
 
-def print_system_info(device: str, compute_type: str):
-    """Print hardware and system details."""
-    print("-" * 60)
-    print("SYSTEM INFO")
-    print("-" * 60)
-    print(f"  OS:          {platform.system()} {platform.release()}")
-    print(f"  Python:      {platform.python_version()}")
-    print(f"  PyTorch:     {torch.__version__}")
-    print(f"  Device:      {device}")
+def print_system_info(device: str, compute_type: str) -> str:
+    """Return hardware and system details as a string."""
+    info = [
+        "-" * 60,
+        "SYSTEM INFO",
+        "-" * 60,
+        f"  OS:          {platform.system()} {platform.release()}",
+        f"  Python:      {platform.python_version()}",
+        f"  PyTorch:     {torch.__version__}",
+        f"  Device:      {device}",
+    ]
     if device == "cuda":
         gpu_name = torch.cuda.get_device_name(0)
-        vram: float = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)  # type: ignore[union-attr]
-        print(f"  GPU:         {gpu_name} ({vram:.1f} GB VRAM)")
-        print(f"  CUDA:        {torch.version.cuda}")  # type: ignore[attr-defined]
-    print(f"  Compute:     {compute_type}")
-    print()
+        vram: float = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # type: ignore[union-attr]
+        info.append(f"  GPU:         {gpu_name} ({vram:.1f} GB VRAM)")
+        info.append(f"  CUDA:        {torch.version.cuda}")  # type: ignore[attr-defined]
+        info.append(f"  Compute:     {compute_type}")
+    system_info = "\n".join(info)
+    logger.info("\n%s", system_info)
+    return system_info
 
 
-def print_file_info(audio_path: str):
-    """Print audio file details."""
+def print_file_info(audio_path: str) -> str:
+    """Return audio file details as a string."""
     p = Path(audio_path)
-    size_mb = p.stat().st_size / (1024 ** 2)
+    size_mb = p.stat().st_size / (1024**2)
     duration = get_audio_duration(audio_path)
-
-    print("-" * 60)
-    print("FILE INFO")
-    print("-" * 60)
-    print(f"  File:        {p.name}")
-    print(f"  Format:      {p.suffix}")
-    print(f"  Size:        {size_mb:.1f} MB")
+    info = [
+        "-" * 60,
+        "FILE INFO",
+        "-" * 60,
+        f"  File:        {p.name}",
+        f"  Format:      {p.suffix}",
+        f"  Size:        {size_mb:.1f} MB",
+    ]
     if duration:
-        print(f"  Duration:    {format_duration(duration)}")
-    print()
+        info.append(f"  Duration:    {format_duration(duration)}")
+    file_info = "\n".join(info)
+    logger.info("\n%s", file_info)
+    return file_info
 
 
-def step_timer(name: str):
-    """Context manager that prints step name and elapsed time."""
-    class Timer:
-        def __init__(self):
-            self.elapsed = 0.0
-        def __enter__(self):
-            self._start = time.perf_counter()
-            print(f"  {name} ...", end="", flush=True)
-            return self
-        def __exit__(self, *_):
-            self.elapsed = time.perf_counter() - self._start
-            print(f" done ({format_duration(self.elapsed)})")
-    return Timer()
+@contextmanager
+def step_timer(name: str) -> Generator[None, None, None]:
+    """Context manager that logs step name and elapsed time."""
+    logger.info("%s ...", name)
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        elapsed = time.perf_counter() - start
+        logger.info("%s done (%s)", name, format_duration(elapsed))
 
 
-def transcribe(audio_path: str, model_name: str = "large-v2", language: str | None = None,
-               min_speakers: int | None = None, max_speakers: int | None = None,
-               batch_size: int = 16, compute_type: str = "float16"):
-    """Run the full WhisperX pipeline: transcribe → align → diarize."""
-
+def transcribe(
+    audio_path: str,
+    options: TranscriptionOptions,
+) -> tuple[dict[str, Any], str]:
+    """Run the full WhisperX pipeline: transcribe, align, diarize."""
     hf_token = os.getenv("HF_TOKEN")
     if not hf_token:
         sys.exit("ERROR: HF_TOKEN not found. Create a .env file (see .env.example).")
 
     device = get_device()
+    compute_type = options.compute_type
     if device == "cpu":
         compute_type = "int8"
 
@@ -129,20 +184,24 @@ def transcribe(audio_path: str, model_name: str = "large-v2", language: str | No
     print_system_info(device, compute_type)
     print_file_info(audio_path)
 
-    print("-" * 60)
-    print(f"PIPELINE  (model={model_name})")
-    print("-" * 60)
+    logger.info("-" * 60)
+    logger.info("PIPELINE  (model=%s)", options.model_name)
+    logger.info("-" * 60)
 
     total_start = time.perf_counter()
 
     # --- 1. Transcribe ---
     with step_timer("[1/4] Transcribing audio"):
-        model = whisperx.load_model(model_name, device, compute_type=compute_type,  # type: ignore[reportUnknownMemberType]
-                                    language=language)
+        model = whisperx.load_model(  # type: ignore[reportUnknownMemberType]
+            options.model_name,
+            device,
+            compute_type=compute_type,
+            language=options.language,
+        )
         audio = whisperx.load_audio(audio_path)  # type: ignore[reportUnknownMemberType]
-        result = model.transcribe(audio, batch_size=batch_size, language=language)
-    detected_lang = result.get("language", language)
-    print(f"         Detected language: {detected_lang}")
+        result = model.transcribe(audio, batch_size=options.batch_size, language=options.language)
+    detected_lang = result.get("language", options.language)
+    logger.info("         Detected language: %s", detected_lang)
 
     del model
     if device == "cuda":
@@ -151,10 +210,15 @@ def transcribe(audio_path: str, model_name: str = "large-v2", language: str | No
     # --- 2. Align ---
     with step_timer("[2/4] Aligning timestamps"):
         align_model, metadata = whisperx.load_align_model(  # type: ignore[reportUnknownMemberType]
-            language_code=detected_lang, device=device
+            language_code=detected_lang,
+            device=device,
         )
         result = whisperx.align(  # type: ignore[reportUnknownMemberType]
-            result["segments"], align_model, metadata, audio, device,
+            result["segments"],
+            align_model,
+            metadata,
+            audio,
+            device,
             return_char_alignments=False,
         )
 
@@ -169,11 +233,11 @@ def transcribe(audio_path: str, model_name: str = "large-v2", language: str | No
             token=hf_token,
             device=device,
         )
-        diarize_kwargs = {}
-        if min_speakers is not None:
-            diarize_kwargs["min_speakers"] = min_speakers
-        if max_speakers is not None:
-            diarize_kwargs["max_speakers"] = max_speakers
+        diarize_kwargs: dict[str, int] = {}
+        if options.min_speakers is not None:
+            diarize_kwargs["min_speakers"] = options.min_speakers
+        if options.max_speakers is not None:
+            diarize_kwargs["max_speakers"] = options.max_speakers
         diarize_segments = diarize_model(audio, **diarize_kwargs)  # type: ignore[reportUnknownArgumentType]
 
     # --- 4. Assign speakers ---
@@ -181,13 +245,14 @@ def transcribe(audio_path: str, model_name: str = "large-v2", language: str | No
         result = whisperx.assign_word_speakers(diarize_segments, result)  # type: ignore[reportUnknownMemberType]
 
     total_elapsed = time.perf_counter() - total_start
-    print()
-    print(f"  Total time: {format_duration(total_elapsed)}")
+    logger.info("")
+    logger.info("  Total time: %s", format_duration(total_elapsed))
 
     return result, detected_lang
 
 
 def format_timestamp(seconds: float) -> str:
+    """Format seconds into HH:MM:SS.mmm notation."""
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
     s = int(seconds % 60)
@@ -195,7 +260,7 @@ def format_timestamp(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
 
 
-def save_results(result: dict[str, Any], audio_path: str, output_dir: str):
+def save_results(result: dict[str, Any], audio_path: str, output_dir: str) -> None:
     """Save transcription as a .txt file."""
     stem = Path(audio_path).stem
     out = Path(output_dir)
@@ -204,40 +269,64 @@ def save_results(result: dict[str, Any], audio_path: str, output_dir: str):
     segments: list[dict[str, Any]] = result.get("segments", [])
 
     txt_path = out / f"{stem}.txt"
-    with open(txt_path, "w", encoding="utf-8") as f:
+    with txt_path.open("w", encoding="utf-8") as f:
         for seg in segments:
             speaker: str = seg.get("speaker", "UNKNOWN")
             start = format_timestamp(seg["start"])
             end = format_timestamp(seg["end"])
             text: str = seg["text"].strip()
             f.write(f"[{start} -> {end}]  {speaker}:  {text}\n")
-    print(f"  TXT  → {txt_path}")
+    logger.info("  TXT  -> %s", txt_path)
 
 
-def main():
+def main() -> None:
+    """Parse CLI args and run transcription."""
     parser = argparse.ArgumentParser(
-        description="Transcribe and diarize audio with WhisperX + pyannote"
+        description="Transcribe and diarize audio with WhisperX + pyannote",
     )
     parser.add_argument("audio", help="Path to the audio file")
-    parser.add_argument("--model", default="large-v2",
-                        help="Whisper model name (default: large-v2)")
-    parser.add_argument("--language", default=None,
-                        help="Language code, e.g. 'nl' or 'en' (auto-detect if omitted)")
-    parser.add_argument("--min-speakers", type=int, default=None,
-                        help="Minimum expected number of speakers")
-    parser.add_argument("--max-speakers", type=int, default=None,
-                        help="Maximum expected number of speakers")
-    parser.add_argument("--batch-size", type=int, default=16,
-                        help="Batch size for transcription (lower if GPU OOM)")
-    parser.add_argument("--compute-type", default="float16",
-                        choices=["float16", "float32", "int8"],
-                        help="Compute type (default: float16)")
-    parser.add_argument("--output-dir", default="Transcriptions",
-                        help="Output directory (default: Transcriptions)")
+    parser.add_argument(
+        "--model",
+        default="large-v2",
+        help="Whisper model name (default: large-v2)",
+    )
+    parser.add_argument(
+        "--language",
+        default=None,
+        help="Language code, e.g. 'nl' or 'en' (auto-detect if omitted)",
+    )
+    parser.add_argument(
+        "--min-speakers",
+        type=int,
+        default=None,
+        help="Minimum expected number of speakers",
+    )
+    parser.add_argument(
+        "--max-speakers",
+        type=int,
+        default=None,
+        help="Maximum expected number of speakers",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=16,
+        help="Batch size for transcription (lower if GPU OOM)",
+    )
+    parser.add_argument(
+        "--compute-type",
+        default="float16",
+        choices=["float16", "float32", "int8"],
+        help="Compute type (default: float16)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="Transcriptions",
+        help="Output directory (default: Transcriptions)",
+    )
     args = parser.parse_args()
 
-    result, _ = transcribe(
-        audio_path=args.audio,
+    options = TranscriptionOptions(
         model_name=args.model,
         language=args.language,
         min_speakers=args.min_speakers,
@@ -246,12 +335,22 @@ def main():
         compute_type=args.compute_type,
     )
 
-    print()
-    print(f"Saving results ({len(result.get('segments', []))} segments) ...")
+    result, _ = transcribe(
+        audio_path=args.audio,
+        options=options,
+    )
+
+    logger.info("")
+    logger.info("Saving results (%d segments) ...", len(result.get("segments", [])))
     save_results(result, args.audio, args.output_dir)
-    print()
-    print("Done!")
+    logger.info("")
+    logger.info("Done!")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[logging.StreamHandler()],
+    )
     main()

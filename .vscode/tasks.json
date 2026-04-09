@@ -1,0 +1,146 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            // ---------------------------------------------------------------
+            // Task 1 — Batch transcription of every file in Audio/
+            // Language is auto-detected; you are prompted per file for speakers.
+            // ---------------------------------------------------------------
+            "label": "1. Transcribe: All Audio Files (batch)",
+            "type": "shell",
+            "command": "for f in Audio/*.wav Audio/*.mp3 Audio/*.flac Audio/*.ogg Audio/*.m4a; do [ -f \"$f\" ] || continue; name=$(basename \"$f\"); printf '\\n\\033[1;36m--- %s ---\\033[0m\\n' \"$name\"; read -ep \"Speakers for '$name'? Enter '<min> <max>' (e.g. '2 3'), one number for exact count, or Enter to auto-detect: \" spk; if [ -n \"$spk\" ]; then min=$(echo \"$spk\" | awk '{print $1}'); max=$(echo \"$spk\" | awk '{print ($2 ? $2 : $1)}'); .venv/Scripts/python transcribe.py \"$f\" --min-speakers \"$min\" --max-speakers \"$max\"; else .venv/Scripts/python transcribe.py \"$f\"; fi; done; printf '\\n\\033[1;32mAll files processed.\\033[0m\\n'",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "shell": {
+                    "executable": "bash",
+                    "args": ["-c"]
+                }
+            },
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "focus": true,
+                "echo": false
+            },
+            "problemMatcher": []
+        },
+        {
+            // ---------------------------------------------------------------
+            // Task 2 — Transcribe a single file with full control over options.
+            // Language 'auto' = WhisperX auto-detects. Empty speaker fields = skip.
+            // ---------------------------------------------------------------
+            "label": "2. Transcribe: Single File (all options)",
+            "type": "shell",
+            "command": "lang=\"${input:language}\"; min=\"${input:minSpeakers}\"; max=\"${input:maxSpeakers}\"; args=(\"Audio/${input:audioFile}\" --model \"${input:model}\" --compute-type \"${input:computeType}\" --batch-size \"${input:batchSize}\" --output-dir \"${input:outputDir}\"); [[ \"$lang\" != \"auto\" ]] && args+=(--language \"$lang\"); [[ -n \"$min\" ]] && args+=(--min-speakers \"$min\"); [[ -n \"$max\" ]] && args+=(--max-speakers \"$max\"); echo \"Running: .venv/Scripts/python transcribe.py ${args[*]}\"; .venv/Scripts/python transcribe.py \"${args[@]}\"",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "shell": {
+                    "executable": "bash",
+                    "args": ["-c"]
+                }
+            },
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "focus": true,
+                "echo": false
+            },
+            "problemMatcher": []
+        },
+        {
+            // ---------------------------------------------------------------
+            // Task 3 — Strip [HH:MM:SS.mmm -> HH:MM:SS.mmm] timestamp prefixes
+            // from a transcription file. Output: <name>_no_timestamps.txt
+            // ---------------------------------------------------------------
+            "label": "3. Remove Timestamps from Transcription",
+            "type": "shell",
+            "command": ".venv/Scripts/python remove_timestamps.py \"Transcriptions/${input:transcriptionFile}\"",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "shell": {
+                    "executable": "bash",
+                    "args": ["-c"]
+                }
+            },
+            "group": "none",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "focus": false,
+                "echo": false
+            },
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "audioFile",
+            "type": "promptString",
+            "description": "Audio filename inside Audio/ (e.g. interview.mp3)",
+            "default": ""
+        },
+        {
+            "id": "model",
+            "type": "pickString",
+            "description": "Whisper model — larger is more accurate but slower",
+            "options": [
+                "large-v2",
+                "large-v3",
+                "medium",
+                "small",
+                "base",
+                "tiny"
+            ],
+            "default": "large-v2"
+        },
+        {
+            "id": "language",
+            "type": "promptString",
+            "description": "Language code (e.g. nl, en, fr, de) — leave as 'auto' to auto-detect",
+            "default": "auto"
+        },
+        {
+            "id": "minSpeakers",
+            "type": "promptString",
+            "description": "Minimum number of speakers — leave empty to let the model decide",
+            "default": ""
+        },
+        {
+            "id": "maxSpeakers",
+            "type": "promptString",
+            "description": "Maximum number of speakers — leave empty to let the model decide",
+            "default": ""
+        },
+        {
+            "id": "batchSize",
+            "type": "promptString",
+            "description": "Transcription batch size — lower (e.g. 8) if you get GPU out-of-memory errors",
+            "default": "16"
+        },
+        {
+            "id": "computeType",
+            "type": "pickString",
+            "description": "Compute precision — float16 is fastest on GPU; int8 is used automatically on CPU",
+            "options": [
+                "float16",
+                "float32",
+                "int8"
+            ],
+            "default": "float16"
+        },
+        {
+            "id": "outputDir",
+            "type": "promptString",
+            "description": "Output directory for transcription results",
+            "default": "Transcriptions"
+        },
+        {
+            "id": "transcriptionFile",
+            "type": "promptString",
+            "description": "Transcription filename inside Transcriptions/ (e.g. interview.txt)",
+            "default": ""
+        }
+    ]
+}

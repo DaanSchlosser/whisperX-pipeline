@@ -16,8 +16,11 @@ venv/
 .venv/
 env/
 
-# IDE
-.vscode/
+# IDE — only curated VSCode files are tracked; user-specific settings are not
+.vscode/*
+!.vscode/tasks.json
+!.vscode/settings.json
+!.vscode/extensions.json
 .idea/
 
 # Audio files (large binaries)

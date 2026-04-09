@@ -27,6 +27,30 @@ winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-a
 
 Create `.env` from `.env.example` and set `HF_TOKEN`.
 
+## Development Tooling
+
+This repository includes:
+
+- strict Ruff linting + formatting (`select = ["ALL"]` with minimal exceptions)
+- pre-commit hooks for automated local quality checks
+- GitHub Actions CI (`.github/workflows/ci.yml`) for lint/format/tests on push + PR
+- versioned VS Code tasks in `.vscode/tasks.json`
+
+Install development tooling:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e .[dev]
+.\.venv\Scripts\pre-commit.exe install
+```
+
+Run quality checks manually:
+
+```powershell
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m ruff format --check .
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
 ## Verify CUDA
 
 ```powershell
