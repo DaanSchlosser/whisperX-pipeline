@@ -8,7 +8,7 @@
             // ---------------------------------------------------------------
             "label": "1. Transcribe: All Audio Files (batch)",
             "type": "shell",
-            "command": "for f in Audio/*.wav Audio/*.mp3 Audio/*.flac Audio/*.ogg Audio/*.m4a; do [ -f \"$f\" ] || continue; name=$(basename \"$f\"); printf '\\n\\033[1;36m--- %s ---\\033[0m\\n' \"$name\"; read -ep \"Speakers for '$name'? Enter '<min> <max>' (e.g. '2 3'), one number for exact count, or Enter to auto-detect: \" spk; if [ -n \"$spk\" ]; then min=$(echo \"$spk\" | awk '{print $1}'); max=$(echo \"$spk\" | awk '{print ($2 ? $2 : $1)}'); .venv/Scripts/python transcribe.py \"$f\" --min-speakers \"$min\" --max-speakers \"$max\"; else .venv/Scripts/python transcribe.py \"$f\"; fi; done; printf '\\n\\033[1;32mAll files processed.\\033[0m\\n'",
+            "command": "for f in Audio/*.wav Audio/*.mp3 Audio/*.flac Audio/*.ogg Audio/*.m4a; do [ -f \"$f\" ] || continue; name=$(basename \"$f\"); printf '\\n\\033[1;36m--- %s ---\\033[0m\\n' \"$name\"; read -ep \"Speakers for '$name'? Enter '<min> <max>' (e.g. '2 3'), one number for exact count, or Enter to auto-detect: \" spk; if [ -n \"$spk\" ]; then min=$(echo \"$spk\" | awk '{print $1}'); max=$(echo \"$spk\" | awk '{print ($2 ? $2 : $1)}'); .venv/Scripts/python.exe transcribe.py \"$f\" --min-speakers \"$min\" --max-speakers \"$max\"; else .venv/Scripts/python.exe transcribe.py \"$f\"; fi; done; printf '\\n\\033[1;32mAll files processed.\\033[0m\\n'",
             "options": {
                 "cwd": "${workspaceFolder}",
                 "shell": {
@@ -32,7 +32,7 @@
             // ---------------------------------------------------------------
             "label": "2. Transcribe: Single File (all options)",
             "type": "shell",
-            "command": "lang=\"${input:language}\"; min=\"${input:minSpeakers}\"; max=\"${input:maxSpeakers}\"; args=(\"Audio/${input:audioFile}\" --model \"${input:model}\" --compute-type \"${input:computeType}\" --batch-size \"${input:batchSize}\" --output-dir \"${input:outputDir}\"); [[ \"$lang\" != \"auto\" ]] && args+=(--language \"$lang\"); [[ -n \"$min\" ]] && args+=(--min-speakers \"$min\"); [[ -n \"$max\" ]] && args+=(--max-speakers \"$max\"); echo \"Running: .venv/Scripts/python transcribe.py ${args[*]}\"; .venv/Scripts/python transcribe.py \"${args[@]}\"",
+            "command": "lang=\"${input:language}\"; min=\"${input:minSpeakers}\"; max=\"${input:maxSpeakers}\"; args=(\"Audio/${input:audioFile}\" --model \"${input:model}\" --compute-type \"${input:computeType}\" --batch-size \"${input:batchSize}\" --output-dir \"${input:outputDir}\"); [[ \"$lang\" != \"auto\" ]] && args+=(--language \"$lang\"); [[ -n \"$min\" ]] && args+=(--min-speakers \"$min\"); [[ -n \"$max\" ]] && args+=(--max-speakers \"$max\"); echo \"Running: .venv/Scripts/python.exe transcribe.py ${args[*]}\"; .venv/Scripts/python.exe transcribe.py \"${args[@]}\"",
             "options": {
                 "cwd": "${workspaceFolder}",
                 "shell": {
@@ -56,7 +56,7 @@
             // ---------------------------------------------------------------
             "label": "3. Remove Timestamps from Transcription",
             "type": "shell",
-            "command": ".venv/Scripts/python remove_timestamps.py \"Transcriptions/${input:transcriptionFile}\"",
+            "command": ".venv/Scripts/python.exe remove_timestamps.py \"Transcriptions/${input:transcriptionFile}\"",
             "options": {
                 "cwd": "${workspaceFolder}",
                 "shell": {
@@ -69,6 +69,29 @@
                 "reveal": "always",
                 "panel": "shared",
                 "focus": false,
+                "echo": false
+            },
+            "problemMatcher": []
+        },
+        {
+            // ---------------------------------------------------------------
+            // Task 4 — Run the full local quality gate used in CI.
+            // ---------------------------------------------------------------
+            "label": "4. Quality: Ruff + Mypy",
+            "type": "shell",
+            "command": ".venv/Scripts/python.exe -m ruff check . && .venv/Scripts/python.exe -m ruff format --check . && .venv/Scripts/python.exe -m mypy .",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "shell": {
+                    "executable": "bash",
+                    "args": ["-c"]
+                }
+            },
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "focus": true,
                 "echo": false
             },
             "problemMatcher": []
