@@ -1,21 +1,24 @@
 {
     "version": "2.0.0",
+    "options": {
+        "cwd": "${workspaceFolder}",
+        "shell": {
+            "executable": "powershell.exe",
+            "args": ["-NoProfile", "-Command"]
+        }
+    },
     "tasks": [
         {
             // ---------------------------------------------------------------
             // Task 1 — Batch transcription of every file in Audio/
             // Language is auto-detected; you are prompted per file for speakers.
+            // (Uses .vscode/batch-transcribe.ps1 — inline breaks because
+            //  Windows argument parsing strips the double quotes that
+            //  PowerShell -Command needs for $() expansion and `n newlines.)
             // ---------------------------------------------------------------
             "label": "1. Transcribe: All Audio Files (batch)",
             "type": "shell",
-            "command": "for f in Audio/*.wav Audio/*.mp3 Audio/*.flac Audio/*.ogg Audio/*.m4a; do [ -f \"$f\" ] || continue; name=$(basename \"$f\"); printf '\\n\\033[1;36m--- %s ---\\033[0m\\n' \"$name\"; read -ep \"Speakers for '$name'? Enter '<min> <max>' (e.g. '2 3'), one number for exact count, or Enter to auto-detect: \" spk; if [ -n \"$spk\" ]; then min=$(echo \"$spk\" | awk '{print $1}'); max=$(echo \"$spk\" | awk '{print ($2 ? $2 : $1)}'); .venv/Scripts/python.exe transcribe.py \"$f\" --min-speakers \"$min\" --max-speakers \"$max\"; else .venv/Scripts/python.exe transcribe.py \"$f\"; fi; done; printf '\\n\\033[1;32mAll files processed.\\033[0m\\n'",
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "shell": {
-                    "executable": "bash",
-                    "args": ["-c"]
-                }
-            },
+            "command": "& '.vscode/batch-transcribe.ps1'",
             "group": "build",
             "presentation": {
                 "reveal": "always",
@@ -32,14 +35,7 @@
             // ---------------------------------------------------------------
             "label": "2. Transcribe: Single File (all options)",
             "type": "shell",
-            "command": "lang=\"${input:language}\"; min=\"${input:minSpeakers}\"; max=\"${input:maxSpeakers}\"; args=(\"Audio/${input:audioFile}\" --model \"${input:model}\" --compute-type \"${input:computeType}\" --batch-size \"${input:batchSize}\" --output-dir \"${input:outputDir}\"); [[ \"$lang\" != \"auto\" ]] && args+=(--language \"$lang\"); [[ -n \"$min\" ]] && args+=(--min-speakers \"$min\"); [[ -n \"$max\" ]] && args+=(--max-speakers \"$max\"); echo \"Running: .venv/Scripts/python.exe transcribe.py ${args[*]}\"; .venv/Scripts/python.exe transcribe.py \"${args[@]}\"",
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "shell": {
-                    "executable": "bash",
-                    "args": ["-c"]
-                }
-            },
+            "command": "if (-not (Test-Path '.env')) { Write-Error 'Missing .env file. Copy .env.example to .env and set HF_TOKEN first.'; exit 1 }; $envText = Get-Content '.env' -Raw; if ($envText -notmatch '(?m)^HF_TOKEN\\s*=\\s*.+$') { Write-Error 'HF_TOKEN is missing in .env. Update .env before running transcription.'; exit 1 }; $language = '${input:language}'; $minSpeakers = '${input:minSpeakers}'; $maxSpeakers = '${input:maxSpeakers}'; $audioPath = Join-Path 'Audio' '${input:audioFile}'; if (-not (Test-Path $audioPath)) { Write-Error ('Audio file not found: ' + $audioPath); exit 1 }; $args = @('transcribe.py', $audioPath, '--model', '${input:model}', '--compute-type', '${input:computeType}', '--batch-size', '${input:batchSize}', '--output-dir', '${input:outputDir}'); if ($language -and $language -ne 'auto') { $args += @('--language', $language) }; if ($minSpeakers) { $args += @('--min-speakers', $minSpeakers) }; if ($maxSpeakers) { $args += @('--max-speakers', $maxSpeakers) }; Write-Host ('Running: .venv/Scripts/python.exe ' + ($args -join ' ')); & '.venv/Scripts/python.exe' @args; exit $LASTEXITCODE",
             "group": "build",
             "presentation": {
                 "reveal": "always",
@@ -56,14 +52,7 @@
             // ---------------------------------------------------------------
             "label": "3. Remove Timestamps from Transcription",
             "type": "shell",
-            "command": ".venv/Scripts/python.exe remove_timestamps.py \"Transcriptions/${input:transcriptionFile}\"",
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "shell": {
-                    "executable": "bash",
-                    "args": ["-c"]
-                }
-            },
+            "command": "& '.venv/Scripts/python.exe' 'remove_timestamps.py' (Join-Path 'Transcriptions' '${input:transcriptionFile}'); exit $LASTEXITCODE",
             "group": "none",
             "presentation": {
                 "reveal": "always",
@@ -79,14 +68,7 @@
             // ---------------------------------------------------------------
             "label": "4. Quality: Ruff + Mypy",
             "type": "shell",
-            "command": ".venv/Scripts/python.exe -m ruff check . && .venv/Scripts/python.exe -m ruff format --check . && .venv/Scripts/python.exe -m mypy .",
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "shell": {
-                    "executable": "bash",
-                    "args": ["-c"]
-                }
-            },
+            "command": "& '.venv/Scripts/python.exe' -m ruff check .; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.venv/Scripts/python.exe' -m ruff format --check .; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.venv/Scripts/python.exe' -m mypy .; exit $LASTEXITCODE",
             "group": "test",
             "presentation": {
                 "reveal": "always",
