@@ -21,19 +21,24 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from typing import Any
 
-import torch
-import whisperx
-from dotenv import load_dotenv
-from whisperx.diarize import DiarizationPipeline
+# Suppress noisy third-party warnings BEFORE importing the libraries that emit them.
+# warnings.filterwarnings uses re.match (anchored at start), so patterns must match
+# from the beginning of the message string.
+# torchcodec fires at import time inside pyannote.audio.core.io, so filtering by
+# module is more robust than trying to match the multi-line message.
+warnings.filterwarnings("ignore", module=r"pyannote\.audio\.core\.io")
+warnings.filterwarnings("ignore", message=r"std\(\): degrees of freedom")
+warnings.filterwarnings("ignore", message=r"TensorFloat-32")
+warnings.filterwarnings("ignore", message=r"Lightning automatically upgraded")
+
+import torch  # noqa: E402
+import whisperx  # noqa: E402
+from dotenv import load_dotenv  # noqa: E402
+from whisperx.diarize import DiarizationPipeline  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-# Suppress noisy informational messages from third-party libraries
 logging.getLogger("lightning.pytorch").setLevel(logging.WARNING)
-warnings.filterwarnings("ignore", message=r"(?s).*torchcodec.*", category=UserWarning)
-warnings.filterwarnings("ignore", message=r"(?s).*TensorFloat-32.*")
-warnings.filterwarnings("ignore", message=r"(?s).*degrees of freedom.*", category=UserWarning)
-warnings.filterwarnings("ignore", message=r"(?s).*Lightning automatically upgraded.*")
 
 load_dotenv()
 
