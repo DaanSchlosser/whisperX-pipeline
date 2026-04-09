@@ -1,10 +1,24 @@
 """Utilities to remove WhisperX timestamp prefixes from transcript files."""
 
+from __future__ import annotations
+
 import argparse
 import logging
+import re
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+TIMESTAMP_PREFIX_RE = re.compile(r"^\[\d{2}:\d{2}:\d{2}\.\d{3}\s*->\s*\d{2}:\d{2}:\d{2}\.\d{3}\]\s*")
+
+
+@dataclass(frozen=True)
+class CleanupStats:
+    """Summary metrics for a timestamp-cleanup run."""
+
+    total_lines: int
+    stripped_lines: int
 
 
 def default_output_path(input_path: Path) -> Path:
@@ -14,25 +28,36 @@ def default_output_path(input_path: Path) -> Path:
 
 def strip_timestamp_prefix(line: str) -> str:
     """Remove a leading timestamp token from one line if present."""
-    if not line.startswith("["):
-        return line
-
-    _, separator, remainder = line.partition("]  ")
-    if separator:
-        return remainder
-
-    _, separator, remainder = line.partition("] ")
-    if separator:
-        return remainder
-
-    return line
+    return TIMESTAMP_PREFIX_RE.sub("", line, count=1)
 
 
-def remove_timestamps(input_path: Path, output_path: Path) -> None:
+def validate_paths(input_path: Path, output_path: Path) -> None:
+    """Validate input/output paths before processing."""
+    if not input_path.exists() or not input_path.is_file():
+        msg = f"Input transcript not found: {input_path}"
+        raise FileNotFoundError(msg)
+
+    if input_path.resolve() == output_path.resolve():
+        msg = "Output path must be different from input path"
+        raise ValueError(msg)
+
+
+def remove_timestamps(input_path: Path, output_path: Path) -> CleanupStats:
     """Write a copy of input transcript without timestamp prefixes."""
+    validate_paths(input_path, output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    total_lines = 0
+    stripped_lines = 0
     with input_path.open("r", encoding="utf-8") as infile, output_path.open("w", encoding="utf-8") as outfile:
         for line in infile:
-            outfile.write(strip_timestamp_prefix(line))
+            total_lines += 1
+            cleaned = strip_timestamp_prefix(line)
+            if cleaned != line:
+                stripped_lines += 1
+            outfile.write(cleaned)
+
+    return CleanupStats(total_lines=total_lines, stripped_lines=stripped_lines)
 
 
 def main() -> None:
@@ -45,11 +70,21 @@ def main() -> None:
     input_path = Path(args.input)
     output_path = Path(args.output) if args.output else default_output_path(input_path)
 
-    remove_timestamps(input_path, output_path)
-    logger.info("Timestamps removed. Output saved to %s", output_path)
+    try:
+        stats = remove_timestamps(input_path, output_path)
+    except (FileNotFoundError, ValueError, OSError):
+        logger.exception("Timestamp cleanup failed")
+        sys.exit(2)
+
+    logger.info(
+        "Timestamps removed. Output saved to %s (stripped %d/%d lines)",
+        output_path,
+        stats.stripped_lines,
+        stats.total_lines,
+    )
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",

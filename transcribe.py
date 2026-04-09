@@ -6,6 +6,7 @@ import argparse
 import logging
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -14,15 +15,16 @@ import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+    from typing import Any
 
 import torch
-import whisperx  # type: ignore[import-untyped]
+import whisperx
 from dotenv import load_dotenv
-from whisperx.diarize import DiarizationPipeline  # type: ignore[import-untyped]
+from whisperx.diarize import DiarizationPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +32,7 @@ logger = logging.getLogger(__name__)
 logging.getLogger("lightning.pytorch").setLevel(logging.WARNING)
 warnings.filterwarnings("ignore", message=r"(?s).*torchcodec.*", category=UserWarning)
 warnings.filterwarnings("ignore", message=r"(?s).*TensorFloat-32.*")
-warnings.filterwarnings(
-    "ignore",
-    message=r"(?s).*degrees of freedom.*",
-    category=UserWarning,
-)
+warnings.filterwarnings("ignore", message=r"(?s).*degrees of freedom.*", category=UserWarning)
 warnings.filterwarnings("ignore", message=r"(?s).*Lightning automatically upgraded.*")
 
 load_dotenv()
@@ -43,6 +41,8 @@ load_dotenv()
 # (pyannote sub-models like PLDA read this env var directly)
 if (_hf_token := os.getenv("HF_TOKEN")) and not os.getenv("HUGGING_FACE_HUB_TOKEN"):
     os.environ["HUGGING_FACE_HUB_TOKEN"] = _hf_token
+
+LANGUAGE_CODE_RE = re.compile(r"^[a-z]{2,10}$")
 
 
 @dataclass(frozen=True)
@@ -55,6 +55,34 @@ class TranscriptionOptions:
     max_speakers: int | None = None
     batch_size: int = 16
     compute_type: str = "float16"
+
+
+def validate_transcription_request(audio_path: str, options: TranscriptionOptions) -> None:
+    """Validate input path and option combinations before expensive model loading."""
+    audio_file = Path(audio_path)
+    if not audio_file.exists() or not audio_file.is_file():
+        msg = f"Audio file not found: {audio_file}"
+        raise FileNotFoundError(msg)
+
+    if options.batch_size < 1:
+        msg = "--batch-size must be >= 1"
+        raise ValueError(msg)
+
+    if options.min_speakers is not None and options.min_speakers < 1:
+        msg = "--min-speakers must be >= 1"
+        raise ValueError(msg)
+
+    if options.max_speakers is not None and options.max_speakers < 1:
+        msg = "--max-speakers must be >= 1"
+        raise ValueError(msg)
+
+    if options.min_speakers and options.max_speakers and options.min_speakers > options.max_speakers:
+        msg = "--min-speakers cannot be greater than --max-speakers"
+        raise ValueError(msg)
+
+    if options.language and not LANGUAGE_CODE_RE.fullmatch(options.language):
+        msg = "--language must be an ISO-style code like 'en' or 'nl'"
+        raise ValueError(msg)
 
 
 def get_device() -> str:
@@ -124,9 +152,10 @@ def print_system_info(device: str, compute_type: str) -> str:
     ]
     if device == "cuda":
         gpu_name = torch.cuda.get_device_name(0)
-        vram: float = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # type: ignore[union-attr]
+        vram: float = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        cuda_version = getattr(getattr(torch, "version", None), "cuda", "unknown")
         info.append(f"  GPU:         {gpu_name} ({vram:.1f} GB VRAM)")
-        info.append(f"  CUDA:        {torch.version.cuda}")  # type: ignore[attr-defined]
+        info.append(f"  CUDA:        {cuda_version}")
         info.append(f"  Compute:     {compute_type}")
     system_info = "\n".join(info)
     logger.info("\n%s", system_info)
@@ -170,9 +199,12 @@ def transcribe(
     options: TranscriptionOptions,
 ) -> tuple[dict[str, Any], str]:
     """Run the full WhisperX pipeline: transcribe, align, diarize."""
+    validate_transcription_request(audio_path, options)
+
     hf_token = os.getenv("HF_TOKEN")
     if not hf_token:
-        sys.exit("ERROR: HF_TOKEN not found. Create a .env file (see .env.example).")
+        msg = "ERROR: HF_TOKEN not found. Create a .env file (see .env.example)."
+        sys.exit(msg)
 
     device = get_device()
     compute_type = options.compute_type
@@ -192,15 +224,18 @@ def transcribe(
 
     # --- 1. Transcribe ---
     with step_timer("[1/4] Transcribing audio"):
-        model = whisperx.load_model(  # type: ignore[reportUnknownMemberType]
+        model = whisperx.load_model(
             options.model_name,
             device,
             compute_type=compute_type,
             language=options.language,
         )
-        audio = whisperx.load_audio(audio_path)  # type: ignore[reportUnknownMemberType]
+        audio = whisperx.load_audio(audio_path)
         result = model.transcribe(audio, batch_size=options.batch_size, language=options.language)
-    detected_lang = result.get("language", options.language)
+    detected_lang = result.get("language") or options.language
+    if detected_lang is None:
+        msg = "Unable to determine language automatically. Re-run with --language set explicitly."
+        raise RuntimeError(msg)
     logger.info("         Detected language: %s", detected_lang)
 
     del model
@@ -209,11 +244,11 @@ def transcribe(
 
     # --- 2. Align ---
     with step_timer("[2/4] Aligning timestamps"):
-        align_model, metadata = whisperx.load_align_model(  # type: ignore[reportUnknownMemberType]
+        align_model, metadata = whisperx.load_align_model(
             language_code=detected_lang,
             device=device,
         )
-        result = whisperx.align(  # type: ignore[reportUnknownMemberType]
+        result = whisperx.align(
             result["segments"],
             align_model,
             metadata,
@@ -233,16 +268,16 @@ def transcribe(
             token=hf_token,
             device=device,
         )
-        diarize_kwargs: dict[str, int] = {}
+        diarize_kwargs: dict[str, Any] = {}
         if options.min_speakers is not None:
             diarize_kwargs["min_speakers"] = options.min_speakers
         if options.max_speakers is not None:
             diarize_kwargs["max_speakers"] = options.max_speakers
-        diarize_segments = diarize_model(audio, **diarize_kwargs)  # type: ignore[reportUnknownArgumentType]
+        diarize_segments = diarize_model(audio, **diarize_kwargs)
 
     # --- 4. Assign speakers ---
     with step_timer("[4/4] Assigning speakers"):
-        result = whisperx.assign_word_speakers(diarize_segments, result)  # type: ignore[reportUnknownMemberType]
+        result = whisperx.assign_word_speakers(diarize_segments, result)
 
     total_elapsed = time.perf_counter() - total_start
     logger.info("")
@@ -335,16 +370,20 @@ def main() -> None:
         compute_type=args.compute_type,
     )
 
-    result, _ = transcribe(
-        audio_path=args.audio,
-        options=options,
-    )
+    try:
+        result, _ = transcribe(
+            audio_path=args.audio,
+            options=options,
+        )
 
-    logger.info("")
-    logger.info("Saving results (%d segments) ...", len(result.get("segments", [])))
-    save_results(result, args.audio, args.output_dir)
-    logger.info("")
-    logger.info("Done!")
+        logger.info("")
+        logger.info("Saving results (%d segments) ...", len(result.get("segments", [])))
+        save_results(result, args.audio, args.output_dir)
+        logger.info("")
+        logger.info("Done!")
+    except (FileNotFoundError, ValueError, RuntimeError):
+        logger.exception("Transcription failed")
+        sys.exit(2)
 
 
 if __name__ == "__main__":

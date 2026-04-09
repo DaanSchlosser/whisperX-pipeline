@@ -16,7 +16,7 @@ Transcribe local audio with speaker diarization using [WhisperX](https://github.
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install .
 
 # CUDA-enabled PyTorch compatible with whisperx==3.8.x
 .\.venv\Scripts\python.exe -m pip install --upgrade --force-reinstall torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu126
@@ -32,8 +32,9 @@ Create `.env` from `.env.example` and set `HF_TOKEN`.
 This repository includes:
 
 - strict Ruff linting + formatting (`select = ["ALL"]` with minimal exceptions)
+- strict MyPy static typing checks
 - pre-commit hooks for automated local quality checks
-- GitHub Actions CI (`.github/workflows/ci.yml`) for lint/format/tests on push + PR
+- GitHub Actions CI (`.github/workflows/ci.yml`) for lint/format/type-checks on push + PR (Python 3.10/3.11/3.12)
 - versioned VS Code tasks in `.vscode/tasks.json`
 
 Install development tooling:
@@ -48,8 +49,12 @@ Run quality checks manually:
 ```powershell
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m ruff format --check .
-.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m mypy .
 ```
+
+You can also run the same quality suite directly from VS Code tasks:
+
+- `4. Quality: Ruff + Mypy`
 
 ## Verify CUDA
 
@@ -62,6 +67,12 @@ Run quality checks manually:
 ```powershell
 .\.venv\Scripts\python.exe transcribe.py "Audio/interview.mp3" --max-speakers 3
 ```
+
+Input validation guards are enabled for production-safe runs:
+
+- missing audio files fail fast with a clear error
+- invalid speaker bounds (`min > max` or non-positive values) are rejected
+- malformed language values are rejected (`--language` expects codes like `en`, `nl`, `fr`)
 
 If you get GPU out-of-memory (common on 8 GB VRAM):
 
@@ -97,6 +108,8 @@ The `remove_timestamps.py` script strips timestamp prefixes from transcript file
 # Specify custom output path
 .\.venv\Scripts\python.exe remove_timestamps.py "Transcriptions/interview.txt" -o "interview_clean.txt"
 ```
+
+If the input file is missing or the output path matches the input path, the command exits with status code `2`.
 
 This removes prefixes like `[00:00:01.234 -> 00:00:02.345]  ` from each line, converting this:
 ```
