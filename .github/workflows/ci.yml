@@ -33,17 +33,23 @@ jobs:
           cache-dependency-path: |
             pyproject.toml
 
-      - name: Install project and tooling
+      # pyproject.toml pins pyright to resolve imports from `./.venv`, so CI
+      # installs into a venv at that same path for parity with local dev.
+      - name: Create venv and install project + tooling
         run: |
-          python -m pip install --upgrade pip
-          pip install -e .[dev]
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e .[dev]
 
       - name: Ruff lint
-        run: ruff check .
+        run: .venv/bin/ruff check .
 
       - name: Ruff format check
-        run: ruff format --check .
+        run: .venv/bin/ruff format --check .
 
       - name: Mypy type check
-        run: mypy .
+        run: .venv/bin/mypy .
+
+      - name: Pyright strict type check
+        run: .venv/bin/pyright
 

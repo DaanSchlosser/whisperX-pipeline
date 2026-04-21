@@ -23,6 +23,12 @@ env/
 !.vscode/extensions.json
 .idea/
 
+# Local type-checker / linter artifacts
+pyright_out.json
+.mypy_cache/
+.ruff_cache/
+.pyright_cache/
+
 # Audio files (large binaries)
 Audio/
 *.wav

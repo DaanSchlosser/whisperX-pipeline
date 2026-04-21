@@ -1,9 +1,13 @@
 {
-    "python.analysis.typeCheckingMode": "basic",
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+    "python.analysis.typeCheckingMode": "strict",
     "python.analysis.exclude": [
         "Audio",
         "Transcriptions",
-        ".venv"
+        ".venv",
+        "**/node_modules",
+        "**/__pycache__",
+        "**/.*"
     ],
     "editor.formatOnSave": true,
     "editor.codeActionsOnSave": {

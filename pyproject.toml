@@ -13,6 +13,7 @@ dependencies = [
 dev = [
     "mypy>=1.11",
     "pre-commit>=3.7",
+    "pyright>=1.1.408",
     "ruff>=0.8",
 ]
 
@@ -86,6 +87,28 @@ known-first-party = ["transcribe", "remove_timestamps"]
 quote-style = "preserve"
 indent-style = "space"
 skip-magic-trailing-comma = false
+
+[tool.pyright]
+typeCheckingMode = "strict"
+pythonVersion = "3.10"
+# Pin the venv explicitly so import resolution is stable across terminals and
+# the IDE — Pylance in particular needs this to find torch/whisperx without
+# each developer manually selecting the interpreter.
+venvPath = "."
+venv = ".venv"
+include = ["transcribe.py", "remove_timestamps.py"]
+exclude = ["Audio", "Transcriptions", ".venv", "**/__pycache__"]
+
+# whisperx and parts of torch.cuda ship without type stubs. Rather than sprinkle
+# `# pyright: ignore` on every call-site, we silence only the Unknown-propagation
+# reports caused by that untyped boundary. Every other strict check (implicit
+# Any, unused expression, missing return type, etc.) remains enforced on our
+# own code.
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+
 
 [tool.mypy]
 python_version = "3.10"

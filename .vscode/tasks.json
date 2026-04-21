@@ -66,9 +66,9 @@
             // ---------------------------------------------------------------
             // Task 4 — Run the full local quality gate used in CI.
             // ---------------------------------------------------------------
-            "label": "4. Quality: Ruff + Mypy",
+            "label": "4. Quality: Ruff + Mypy + Pyright",
             "type": "shell",
-            "command": "& '.venv/Scripts/python.exe' -m ruff check .; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.venv/Scripts/python.exe' -m ruff format --check .; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.venv/Scripts/python.exe' -m mypy .; exit $LASTEXITCODE",
+            "command": "& '.venv/Scripts/python.exe' -m ruff check .; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.venv/Scripts/python.exe' -m ruff format --check .; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.venv/Scripts/python.exe' -m mypy .; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.venv/Scripts/python.exe' -m pyright; exit $LASTEXITCODE",
             "group": "test",
             "presentation": {
                 "reveal": "always",

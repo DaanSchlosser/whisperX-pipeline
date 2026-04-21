@@ -22,3 +22,8 @@ repos:
     hooks:
       - id: mypy
         args: ["--config-file=pyproject.toml"]
+
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.408
+    hooks:
+      - id: pyright

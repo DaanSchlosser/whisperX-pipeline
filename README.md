@@ -32,7 +32,7 @@ Create `.env` from `.env.example` and set `HF_TOKEN`.
 This repository includes:
 
 - strict Ruff linting + formatting (`select = ["ALL"]` with minimal exceptions)
-- strict MyPy static typing checks
+- strict MyPy + Pyright static typing checks (Pyright in `strict` mode, matching VS Code Pylance)
 - pre-commit hooks for automated local quality checks
 - GitHub Actions CI (`.github/workflows/ci.yml`) for lint/format/type-checks on push + PR (Python 3.10/3.11/3.12)
 - versioned VS Code tasks in `.vscode/tasks.json`
@@ -50,11 +50,12 @@ Run quality checks manually:
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m ruff format --check .
 .\.venv\Scripts\python.exe -m mypy .
+.\.venv\Scripts\python.exe -m pyright
 ```
 
 You can also run the same quality suite directly from VS Code tasks:
 
-- `4. Quality: Ruff + Mypy`
+- `4. Quality: Ruff + Mypy + Pyright`
 
 ## Verify CUDA
 
