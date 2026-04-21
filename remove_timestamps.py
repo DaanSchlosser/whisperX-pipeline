@@ -43,19 +43,29 @@ def validate_paths(input_path: Path, output_path: Path) -> None:
 
 
 def remove_timestamps(input_path: Path, output_path: Path) -> CleanupStats:
-    """Write a copy of input transcript without timestamp prefixes."""
+    """Write a copy of input transcript without timestamp prefixes.
+
+    Writes to a sibling ``*.tmp`` file and atomically renames on success so a
+    partial file cannot be mistaken for a complete one if the run is interrupted.
+    """
     validate_paths(input_path, output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
 
     total_lines = 0
     stripped_lines = 0
-    with input_path.open("r", encoding="utf-8") as infile, output_path.open("w", encoding="utf-8") as outfile:
-        for line in infile:
-            total_lines += 1
-            cleaned = strip_timestamp_prefix(line)
-            if cleaned != line:
-                stripped_lines += 1
-            outfile.write(cleaned)
+    try:
+        with input_path.open(encoding="utf-8") as infile, tmp_path.open("w", encoding="utf-8") as outfile:
+            for line in infile:
+                total_lines += 1
+                cleaned = strip_timestamp_prefix(line)
+                if cleaned != line:
+                    stripped_lines += 1
+                outfile.write(cleaned)
+        tmp_path.replace(output_path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
     return CleanupStats(total_lines=total_lines, stripped_lines=stripped_lines)
 
