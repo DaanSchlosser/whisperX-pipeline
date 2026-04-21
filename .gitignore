@@ -21,6 +21,7 @@ env/
 !.vscode/tasks.json
 !.vscode/settings.json
 !.vscode/extensions.json
+!.vscode/*.ps1
 .idea/
 
 # Local type-checker / linter artifacts

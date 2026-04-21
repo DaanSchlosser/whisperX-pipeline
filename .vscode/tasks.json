@@ -32,10 +32,13 @@
             // ---------------------------------------------------------------
             // Task 2 — Transcribe a single file with full control over options.
             // Language 'auto' = WhisperX auto-detects. Empty speaker fields = skip.
+            // (Uses .vscode/transcribe-single.ps1 — a single .ps1 file is far
+            //  easier to maintain than inline PowerShell across Windows arg
+            //  parsing.)
             // ---------------------------------------------------------------
             "label": "2. Transcribe: Single File (all options)",
             "type": "shell",
-            "command": "if (-not (Test-Path '.env')) { Write-Error 'Missing .env file. Copy .env.example to .env and set HF_TOKEN first.'; exit 1 }; $envText = Get-Content '.env' -Raw; if ($envText -notmatch '(?m)^HF_TOKEN\\s*=\\s*.+$') { Write-Error 'HF_TOKEN is missing in .env. Update .env before running transcription.'; exit 1 }; $language = '${input:language}'; $minSpeakers = '${input:minSpeakers}'; $maxSpeakers = '${input:maxSpeakers}'; $audioPath = Join-Path 'Audio' '${input:audioFile}'; if (-not (Test-Path $audioPath)) { Write-Error ('Audio file not found: ' + $audioPath); exit 1 }; $args = @('transcribe.py', $audioPath, '--model', '${input:model}', '--compute-type', '${input:computeType}', '--batch-size', '${input:batchSize}', '--output-dir', '${input:outputDir}'); if ($language -and $language -ne 'auto') { $args += @('--language', $language) }; if ($minSpeakers) { $args += @('--min-speakers', $minSpeakers) }; if ($maxSpeakers) { $args += @('--max-speakers', $maxSpeakers) }; Write-Host ('Running: .venv/Scripts/python.exe ' + ($args -join ' ')); & '.venv/Scripts/python.exe' @args; exit $LASTEXITCODE",
+            "command": "& '.vscode/transcribe-single.ps1' -AudioFile '${input:audioFile}' -Model '${input:model}' -Language '${input:language}' -MinSpeakers '${input:minSpeakers}' -MaxSpeakers '${input:maxSpeakers}' -BatchSize '${input:batchSize}' -ComputeType '${input:computeType}' -OutputDir '${input:outputDir}'",
             "group": "build",
             "presentation": {
                 "reveal": "always",
@@ -122,7 +125,7 @@
             "id": "batchSize",
             "type": "promptString",
             "description": "Transcription batch size — lower (e.g. 8) if you get GPU out-of-memory errors",
-            "default": "16"
+            "default": "8"
         },
         {
             "id": "computeType",
