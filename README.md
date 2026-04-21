@@ -95,7 +95,27 @@ If you get GPU out-of-memory (common on 8 GB VRAM):
 
 ## Output
 
-Writes a `.txt` file to `Transcriptions/` with timestamps and speaker labels.
+Writes a `.txt` file to `Transcriptions/` that begins with a commented metadata
+header, followed by a blank line and the timestamped, speaker-labelled
+transcript:
+
+```text
+# Source     interview.m4a
+# Recorded   2026-04-21 10:52:31
+# Duration   49m 9s
+# Language   en
+# Model      large-v2
+# Speakers   2
+# Segments   542
+# Generated  2026-04-21 14:36:12
+
+[00:00:00.671 -> 00:00:05.092]  SPEAKER_01:  Hello and welcome...
+```
+
+The `Recorded` timestamp comes from the audio container's `creation_time` tag
+when available (ffprobe), falling back to filesystem creation time. The `#`
+prefix keeps the whole block invisible to `remove_timestamps.py`, so cleaned
+outputs retain the metadata unchanged.
 
 ## Removing Timestamps
 
@@ -114,12 +134,12 @@ If the input file is missing or the output path matches the input path, the comm
 
 This removes prefixes like `[00:00:01.234 -> 00:00:02.345]  ` from each line, converting this:
 ```
-[00:00:00.151 -> 00:00:01.631]  SPEAKER_00: Good morning.
-[00:00:01.651 -> 00:00:03.411]  SPEAKER_01: Hi there!
+[00:00:00.151 -> 00:00:01.631]  SPEAKER_00:  Good morning.
+[00:00:01.651 -> 00:00:03.411]  SPEAKER_01:  Hi there!
 ```
 
 To:
 ```
-SPEAKER_00: Good morning.
-SPEAKER_01: Hi there!
+SPEAKER_00:  Good morning.
+SPEAKER_01:  Hi there!
 ```
